@@ -1,29 +1,26 @@
-// src/app/api/stream/route.ts
-import { NextRequest } from "next/server";
+async function handleSubmit(e: FormEvent) {
+  e.preventDefault();
+  if (!input.trim()) return;
 
-export const runtime = "edge"; // 低レイテンシ
+  setMessages((m) => [...m, { role: "user", content: input }, { role: "assistant", content: "" }]);
+  const prompt = input;
+  setInput("");
 
-export async function POST(req: NextRequest) {
-  const { prompt } = await req.json();
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetch("/api/stream", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      stream: true,
-      messages: [{ role: "user", content: prompt }],
-    }),
+    body: JSON.stringify({ prompt }),
   });
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
 
-  return new Response(res.body, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    setMessages((m) => {
+      const copy = [...m];
+      copy[copy.length - 1].content += chunk;
+      return copy;
+    });
+  }
 }
