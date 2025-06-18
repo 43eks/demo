@@ -1,30 +1,33 @@
-async function handleSubmit(e: FormEvent) {
-  e.preventDefault();
-  if (!input.trim()) return;
+import { NextRequest } from "next/server";
 
-  // ユーザー発言を即追加
-  setMessages(m => [...m, { role: "user", content: input }, { role: "assistant", content: "" }]);
-  const prompt = input;
-  setInput("");
+export const runtime = "edge"; // 超低レイテンシ (Vercel Edge)
 
-  /* ↓↓ ストリーミング受信に差し替え ↓↓ */
-  const res = await fetch("/api/stream", {
+export async function POST(req: NextRequest) {
+  const { prompt } = await req.json();
+
+  const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      stream: true,
+      temperature: 0.7,
+      messages: [
+        { role: "system", content: "You are a helpful assistant." },
+        { role: "user", content: prompt },
+      ],
+    }),
   });
 
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value);
-    setMessages(m => {
-      const copy = [...m];
-      copy[copy.length - 1].content += chunk;
-      return copy;
-    });
-  }
+  // OpenAI からそのまま転送
+  return new Response(openaiRes.body, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
